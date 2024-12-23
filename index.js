@@ -6,15 +6,14 @@ const jwt = require('jsonwebtoken');
 const admin = require("firebase-admin");
 const serviceAccount = require("./serviceAccount.json");
 require('dotenv').config();
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const nodemailer = require('nodemailer');
 const port = process.env.PORT || 5000;
 
 // middlewares
 app.use(cors())
 app.use(express.json())
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-});
+// verify token
 const verifyToken = (req, res, next) => {
     if (!req.headers.authorization) {
         return res.status(401).send({ message: 'Forbidden access' })
@@ -29,7 +28,21 @@ const verifyToken = (req, res, next) => {
         // console.log('decoded', decoded)
         next()
     })
-}
+};
+
+// firebase auth admin
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
+// configure nodemailer
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.NODEMAILER_AUTH_GMAIL_ID,
+        pass: process.env.NODEMAILER_AUTH_GMAIL_APP_PASS
+    }
+});
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.g8eto.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -47,12 +60,14 @@ async function run() {
         // Connect the client to the server	(optional starting in v4.7)
         await client.connect();
 
+        // mongodb collections
         const userCollection = client.db('RichterDb').collection("users");
         const menuCollection = client.db('RichterDb').collection("menu");
         const reviewCollection = client.db('RichterDb').collection("reviews");
         const cartCollection = client.db('RichterDb').collection("cart");
         const paymentCollection = client.db('RichterDb').collection("payments");
-        // middleware
+
+        // middleware verify admin
         const verifyAdmin = async (req, res, next) => {
             const email = req.user.email;
             const query = { email: email };
@@ -71,8 +86,6 @@ async function run() {
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
             res.send({ token })
         })
-
-        // middlewares
 
         // user related api only admin access
         app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
@@ -105,6 +118,8 @@ async function run() {
             res.send(result)
         });
         // users admin related api
+
+        // make an user admin
         app.patch('/users/admin/:id', async (req, res) => {
             const id = req.params.id;
             const filter = { _id: new ObjectId(id) };
@@ -117,6 +132,7 @@ async function run() {
             res.send(result)
         })
 
+        // check if the user is admin or not
         app.get('/users/admin/:id', verifyToken, async (req, res) => {
             const email = req.params.id;
             console.log(req.user.email)
@@ -176,7 +192,7 @@ async function run() {
             res.send(result)
         })
 
-        // cart
+        // reviews related api
         app.get('/reviews', async (req, res) => {
             const result = await reviewCollection.find().toArray()
             res.send(result)
@@ -224,31 +240,42 @@ async function run() {
         })
 
         // payment related api
-        app.get('/payments/:email',verifyToken, async(req, res) => {
-            const query = {email: req.params.email};
-            if(req.params.email !== req.user.email){
-                return res.send(403).send({message: 'forbidden access'})
+        app.get('/payments/:email', verifyToken, async (req, res) => {
+            const query = { email: req.params.email };
+            if (req.params.email !== req.user.email) {
+                return res.send(403).send({ message: 'forbidden access' })
             }
             const result = await paymentCollection.find(query).toArray();
             res.send(result)
         })
 
-        app.post('/payments', async(req, res) => {
+        app.post('/payments', async (req, res) => {
             const payment = req.body;
             const paymentResult = await paymentCollection.insertOne(payment); //inset payment info in db collection
-            
+
             // carefully delete each item from the cart of the user or cartCollection
             console.log(payment.cartIds)
             const query = {
-            _id: {
-            $in: payment.cartIds.map(id => new ObjectId(id))
-           }};
-           const deletedResult = await cartCollection.deleteMany(query);
-           res.send({paymentResult, deletedResult})
+                _id: {
+                    $in: payment.cartIds.map((id) => new ObjectId(id))
+                }
+            };
+
+            const deletedResult = await cartCollection.deleteMany(query);
+            const sendMail = await transporter.sendMail({
+                from: "alzami4969@gmail.com",
+                to: payment.email,
+                subject: "Verify Your email address",
+                html: `<p> Thank you for your order! </p>
+                     <p>Please verify your email by clicking the link below:</p>
+                `
+            });
+            console.log(sendMail)
+            res.send({ paymentResult, deletedResult })
         })
 
         // stats analytics
-        app.get('/admin-stats', verifyToken, verifyAdmin, async(req, res) => {
+        app.get('/admin-stats', verifyToken, verifyAdmin, async (req, res) => {
             const users = await userCollection.estimatedDocumentCount();
             const menuItems = await menuCollection.estimatedDocumentCount();
             const orders = await paymentCollection.estimatedDocumentCount();
@@ -274,8 +301,11 @@ async function run() {
                 menuItems,
                 orders,
                 revenue
+            })
         })
-        })
+
+        // send message to user's email
+
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
