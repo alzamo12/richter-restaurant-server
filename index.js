@@ -11,8 +11,11 @@ const nodemailer = require('nodemailer');
 const port = process.env.PORT || 5000;
 
 // middlewares
-app.use(cors())
+app.use(cors({
+    origin: ['https://richter-restaurant.web.app', 'http://localhost:5173'],
+}));
 app.use(express.json())
+
 // verify token
 const verifyToken = (req, res, next) => {
     if (!req.headers.authorization) {
@@ -55,10 +58,12 @@ const client = new MongoClient(uri, {
     }
 });
 
+
+
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
 
         // mongodb collections
         const userCollection = client.db('RichterDb').collection("users");
@@ -135,7 +140,7 @@ async function run() {
         // check if the user is admin or not
         app.get('/users/admin/:id', verifyToken, async (req, res) => {
             const email = req.params.id;
-            console.log(req.user.email)
+            // console.log(req.user.email)
             if (email !== req.user.email) {
                 return res.status(403).send({ message: 'unauthorized access' })
             }
@@ -150,8 +155,23 @@ async function run() {
 
         // menu
         app.get('/menu', async (req, res) => {
-            const result = await menuCollection.find().toArray();
-            res.send(result)
+            const { category, page, limit } = req.query;
+            const skip = (page - 1) * limit;
+            // const query = {
+            //     $in: {
+            //         category: category
+            //     }
+            // }
+
+            if (category || page || limit) {
+                const result = await menuCollection.find({ category }).skip(skip).limit(Number(limit)).toArray();
+                const total = await menuCollection.countDocuments({ category });
+                res.send({ result, total })
+            }
+            else {
+                const result = await menuCollection.find().toArray();
+                res.send(result)
+            }
         })
 
         app.post('/menu', verifyToken, verifyAdmin, async (req, res) => {
@@ -163,7 +183,7 @@ async function run() {
         app.delete('/menu/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const query = { _id: id };
-            console.log(query)
+            // console.log(query)
             const result = await menuCollection.deleteOne(query);
             res.send(result)
         })
@@ -198,6 +218,12 @@ async function run() {
             res.send(result)
         })
 
+        app.post('/reviews', async (req, res) => {
+            const review = req.body;
+            const result = await reviewCollection.insertOne(review);
+            res.send(result)
+        })
+
         // cart collection
 
         app.get('/carts', async (req, res) => {
@@ -226,7 +252,7 @@ async function run() {
         app.post('/create-payment-intent', async (req, res) => {
             const { price } = req.body;
             const amount = parseInt(price * 100);
-            console.log(amount)
+            // console.log(amount)
             // console.log(stripe.paymentIntents)
             const paymentIntent = await stripe.paymentIntents.create({
                 amount: amount,
@@ -249,12 +275,26 @@ async function run() {
             res.send(result)
         })
 
+        app.get('/payments/reservation/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+            // console.log(email)
+            const query = {
+                email: email,
+                paymentType: 'reservation'
+            }
+            if (req.params.email !== req.user.email) {
+                return
+            }
+            const result = await paymentCollection.find(query).toArray();
+            res.send(result)
+        })
+
         app.post('/payments', async (req, res) => {
             const payment = req.body;
             const paymentResult = await paymentCollection.insertOne(payment); //inset payment info in db collection
 
             // carefully delete each item from the cart of the user or cartCollection
-            console.log(payment.cartIds)
+            // console.log(payment.cartIds)
             const query = {
                 _id: {
                     $in: payment.cartIds.map((id) => new ObjectId(id))
@@ -262,6 +302,7 @@ async function run() {
             };
 
             const deletedResult = await cartCollection.deleteMany(query);
+
             const sendMail = await transporter.sendMail({
                 from: "alzami4969@gmail.com",
                 to: payment.email,
@@ -270,7 +311,7 @@ async function run() {
                      <p>Please verify your email by clicking the link below:</p>
                 `
             });
-            console.log(sendMail)
+            // console.log(sendMail)
             res.send({ paymentResult, deletedResult })
         })
 
@@ -304,24 +345,44 @@ async function run() {
             })
         })
 
+        // user stat analytics
+        app.get('/user-stats/:email', async (req, res) => {
+            const email = req.params.email;
+            const menuItems = await menuCollection.estimatedDocumentCount();
+            const cartItems = await cartCollection.countDocuments({ email });
+            const bookings = await paymentCollection.countDocuments({ paymentType: 'reservation', email: email });
+            const orders = await paymentCollection.countDocuments({ paymentType: 'cart', email: email });
+            const payment = await paymentCollection.countDocuments({ email: email });
+            const reviews = await reviewCollection.countDocuments({ email: email });
+
+            // console.log({ menuItems, cartItems })
+            res.send({
+                menuItems,
+                cartItems,
+                bookings,
+                orders,
+                payment,
+                reviews
+            })
+
+        })
+
         // send message to user's email
 
 
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
     }
 }
-run().catch(console.dir);
+run()
 
 
 app.get('/', async (req, res) => {
     res.send('richter restaurant server')
 })
 
-app.listen(port, () => {
-    console.log(`web is running on port: ${port}`)
-})
+app.listen(port)
