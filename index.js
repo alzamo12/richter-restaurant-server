@@ -15,6 +15,7 @@ app.use(cors({
     origin: ['https://richter-restaurant.web.app', 'http://localhost:5173'],
 }));
 app.use(express.json())
+// app.options('/sendMail', cors())
 
 // verify token
 const verifyToken = (req, res, next) => {
@@ -47,6 +48,18 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+// verify email function
+const randString = () => {
+    const len = 8;
+    let randStr = '';
+    for (let i = 0; i < len; i++) {
+        const ch = Math.floor((Math.random() * 10) + 1);
+        randStr += ch
+    }
+
+    return randStr
+};
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.g8eto.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -57,7 +70,6 @@ const client = new MongoClient(uri, {
         deprecationErrors: true,
     }
 });
-
 
 
 async function run() {
@@ -71,6 +83,7 @@ async function run() {
         const reviewCollection = client.db('RichterDb').collection("reviews");
         const cartCollection = client.db('RichterDb').collection("cart");
         const paymentCollection = client.db('RichterDb').collection("payments");
+        const falseCollection = client.db('RichterDb').collection("falseUser");
 
         // middleware verify admin
         const verifyAdmin = async (req, res, next) => {
@@ -85,7 +98,9 @@ async function run() {
             next()
         }
 
+        // api routes
 
+        // jwt api
         app.post('/jwt', (req, res) => {
             const user = req.body;
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
@@ -94,24 +109,104 @@ async function run() {
 
         // user related api only admin access
         app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
-            // console.log(req.user)
             const result = await userCollection.find().toArray();
             res.send(result)
         })
 
+        // post user to database if exists return it, if valid does not make it valid:true
         app.post('/users', async (req, res) => {
             const user = req.body;
             const query = { email: user.email };
+            const uniqueString = randString();
+            const isValid = false;
+
             const existingUser = await userCollection.findOne(query);
             if (existingUser) {
                 return res.send({ message: 'user already exists', insertedId: null })
             }
+
+            if (user?.isValid === false) {
+                const newUser = {
+                    isValid,
+                    uniqueString: parseFloat(uniqueString),
+                    ...user
+                };
+
+                // send verification mail of your own
+                const sendMail = await transporter.sendMail({
+                    from: 'alzami4969@gmail.com',
+                    to: newUser.email,
+                    subject: "Verify Your email address",
+                    html: `Hello ${newUser.name} <br/>
+                    Follow this link to verify your email address. <br/>
+                    <a href="https://richter-restaurant-server.vercel.app/verify/${newUser.uniqueString}?uid=${newUser.uid}" >Here</a> <br/>
+                    if you didn't ask to verify this address, you can ignore this email. <br/>
+                    Thanks. <br/>
+                     regards from Richter Restaurant Team
+                `
+                });
+                const result = await userCollection.insertOne(newUser);
+                return res.send(result)
+            }
+
             const result = await userCollection.insertOne(user);
             res.send(result)
         });
 
+        // verify email
+        app.get('/verify/:uniqueString', async (req, res) => {
+            const { uniqueString } = req.params;
+            const uid = req.query.uid;
+            // console.log('id', uniqueString);
+            const query = {
+                uniqueString: parseFloat(uniqueString)
+            }
+
+            // console.log(query)
+            const user = await userCollection.findOne((query));
+            // console.log(user)
+            if (user) {
+                // user.isValid = true;
+                const filter = { uniqueString: parseFloat(uniqueString) };
+                const updatedDoc = {
+                    $set: {
+                        isValid: true
+                    }
+                }
+
+                const result = await userCollection.updateOne(filter, updatedDoc)
+                if (result.modifiedCount > 0) {
+                    try {
+                        const userRecord = await admin.auth().updateUser(uid, {
+                            emailVerified: true
+                        })
+                    }
+                    catch (error) {
+                        console.log(error)
+                    }
+                }
+                // await userCollection.insertOne(user)
+                res.send('User verified Successfully')
+            }
+            else {
+                res.json('invalid User')
+            }
+        })
+
+        // check if the user is valid or not
+        app.get('/checkValid/:email', async (req, res) => {
+            const email = req.params.email;
+            if (email) {
+                const query = {
+                    email
+                };
+                const result = await userCollection.findOne(query);
+                res.send(result)
+            }
+        })
+
         // delete user from firebase and database as well
-        app.delete('/users/:id', async (req, res) => {
+        app.delete('/users/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const email = req.query.email; // query parameter email passes from client side
             if (email) {
@@ -122,6 +217,21 @@ async function run() {
             const result = await userCollection.deleteOne(query);
             res.send(result)
         });
+
+        // update to verified user
+        app.put('/user/:email', async (req, res) => {
+            const email = req.params.email;
+            const filter = { email: email };
+            const updatedDoc = {
+                $set: {
+                    isValid: true
+                }
+            }
+
+            const result = await userCollection.updateOne(filter, updatedDoc);
+            res.send(result)
+        })
+
         // users admin related api
 
         // make an user admin
@@ -218,7 +328,7 @@ async function run() {
             res.send(result)
         })
 
-        app.post('/reviews', async (req, res) => {
+        app.post('/reviews', verifyToken, async (req, res) => {
             const review = req.body;
             const result = await reviewCollection.insertOne(review);
             res.send(result)
@@ -226,7 +336,7 @@ async function run() {
 
         // cart collection
 
-        app.get('/carts', async (req, res) => {
+        app.get('/carts', verifyToken, async (req, res) => {
             const email = req.query.email;
             const query = {
                 email: email
@@ -346,7 +456,7 @@ async function run() {
         })
 
         // user stat analytics
-        app.get('/user-stats/:email', async (req, res) => {
+        app.get('/user-stats/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
             const menuItems = await menuCollection.estimatedDocumentCount();
             const cartItems = await cartCollection.countDocuments({ email });
@@ -384,5 +494,6 @@ run()
 app.get('/', async (req, res) => {
     res.send('richter restaurant server')
 })
+
 
 app.listen(port)
