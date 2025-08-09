@@ -88,3 +88,78 @@ NODEMAILER_AUTH_GMAIL_APP_PASS=your_gmail_app_password
 ```bash
 git clone https://github.com/your-username/richter-restaurant-backend.git
 cd richter-restaurant-backend
+
+2️⃣ Install Dependencies
+
+bash
+Copy
+Edit
+npm install
+3️⃣ Set Up Environment Variables
+
+Create .env file and add variables as shown above.
+
+4️⃣ Run the Server
+
+bash
+Copy
+Edit
+npm start
+or (for development with hot reload)
+
+bash
+Copy
+Edit
+npm run dev
+🌐 API Endpoints
+Auth
+POST /jwt → Generate JWT token.
+
+POST /users → Register new user & send verification email.
+
+GET /verify/:uniqueString → Verify email.
+
+Users
+GET /users → Get all users (Admin only).
+
+PATCH /users/admin/:id → Make a user admin.
+
+DELETE /users/:id → Delete user (and Firebase account).
+
+Menu
+GET /menu → Get menu items (with optional pagination & filtering).
+
+POST /menu → Add menu item (Admin only).
+
+PATCH /menu/:id → Update menu item (Admin only).
+
+DELETE /menu/:id → Delete menu item (Admin only).
+
+Cart
+GET /carts → Get cart items by email.
+
+POST /carts → Add item to cart.
+
+DELETE /carts/:id → Remove item from cart.
+
+Payments
+POST /create-payment-intent → Create Stripe payment intent.
+
+POST /payments → Save payment & delete purchased cart items.
+
+Reviews
+GET /reviews → Get all reviews.
+
+POST /reviews → Add review.
+
+Analytics
+GET /admin-stats → Admin dashboard stats.
+
+GET /user-stats/:email → User dashboard stats.
+
+⚠️ Security Notes
+Always keep sensitive files (.env, serviceAccount.json) private.
+
+Configure CORS properly for production.
+
+Use HTTPS in production for secure data transfer.
