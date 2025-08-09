@@ -64,9 +64,22 @@ It handles authentication, user management, menu operations, order processing, p
 
 ## 📂 Project Structure
 
+richter-restaurant-backend/
+│-- index.js.js # Main server file
+│-- serviceAccount.json # Firebase service account (keep private)
+│-- .env # Environment variables (keep private)
+│-- package.json
+└── README.md
 
 > ⚠️ Keep `.env` and `serviceAccount.json` private. Do not commit them to GitHub.
 
+PORT=5000
+DB_USER=your_mongodb_user
+DB_PASS=your_mongodb_password
+ACCESS_TOKEN_SECRET=your_jwt_secret
+STRIPE_SECRET_KEY=your_stripe_secret_key
+NODEMAILER_AUTH_GMAIL_ID=your_gmail_address
+NODEMAILER_AUTH_GMAIL_APP_PASS=your_gmail_app_password
 ---
 
 ## 📦 Installation & Setup
