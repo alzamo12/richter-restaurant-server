@@ -125,33 +125,28 @@ async function run() {
                 return res.send({ message: 'user already exists', insertedId: null })
             }
 
-            if (user?.isValid === false) {
-                const newUser = {
-                    isValid,
-                    uniqueString: parseFloat(uniqueString),
-                    ...user
-                };
+            const newUser = {
+                isValid,
+                uniqueString: parseFloat(uniqueString),
+                ...user
+            };
 
-                // send verification mail of your own
-                const sendMail = await transporter.sendMail({
-                    from: 'alzami4969@gmail.com',
-                    to: newUser.email,
-                    subject: "Verify Your email address",
-                    html: `Hello ${newUser.name} <br/>
+            // send verification mail of your own
+            const sendMail = await transporter.sendMail({
+                from: 'alzami4969@gmail.com',
+                to: newUser.email,
+                subject: "Verify Your email address",
+                html: `Hello ${newUser.name} <br/>
                     Follow this link to verify your email address. <br/>
                     <a href="https://richter-restaurant-server.vercel.app/verify/${newUser.uniqueString}?uid=${newUser.uid}" >Here</a> <br/>
                     if you didn't ask to verify this address, you can ignore this email. <br/>
                     Thanks. <br/>
                      regards from Richter Restaurant Team
                 `
-                });
-                const result = await userCollection.insertOne(newUser);
-                return res.send(result)
-            }
-
-            const result = await userCollection.insertOne(user);
-            res.send(result)
-        });
+            });
+            const result = await userCollection.insertOne(newUser);
+            return res.send(result)
+        })
 
         // verify email
         app.get('/verify/:uniqueString', async (req, res) => {
@@ -191,6 +186,26 @@ async function run() {
             else {
                 res.json('invalid User')
             }
+        })
+
+        app.get('/sendMail/:email', async (req, res) => {
+
+            const email = req.params.email;
+            const user = await userCollection.findOne({ email });
+
+            const sendMail = await transporter.sendMail({
+                from: 'alzami4969@gmail.com',
+                to: user.email,
+                subject: "Verify Your email address",
+                html: `Hello ${user.name} <br/>
+                Follow this link to verify your email address. <br/>
+                <a href="https://richter-restaurant-server.vercel.app/verify/${user.uniqueString}?uid=${user.uid}" >Here</a> <br/>
+                if you didn't ask to verify this address, you can ignore this email. <br/>
+                Thanks. <br/>
+                 regards from Richter Restaurant Team
+            `
+            });
+            res.send({ message: 'email sent successfully' })
         })
 
         // check if the user is valid or not
@@ -250,16 +265,18 @@ async function run() {
         // check if the user is admin or not
         app.get('/users/admin/:id', verifyToken, async (req, res) => {
             const email = req.params.id;
-            // console.log(req.user.email)
             if (email !== req.user.email) {
+                // console.log('unauthorized access')
                 return res.status(403).send({ message: 'unauthorized access' })
             }
             const query = { email: email }
             const user = await userCollection.findOne(query)
+            // console.log(user.email)
             let admin = false;
             if (user) {
                 admin = user?.role === 'admin'
             }
+            // console.log(admin)
             res.send({ admin })
         })
 
@@ -382,7 +399,19 @@ async function run() {
                 return res.send(403).send({ message: 'forbidden access' })
             }
             const result = await paymentCollection.find(query).toArray();
-            res.send(result)
+
+            const formattedResult = result.map(item => {
+                if (item.orderedDate) {
+                    item.newOrderDate = new Date(item.orderedDate).toString().split("T")[0];
+                }
+                else if (item.date) {
+                    item.newDate = new Date(item.date).toISOString().split("T")[0];
+                }
+
+                return item;
+            });
+
+            res.send(formattedResult)
         })
 
         app.get('/payments/reservation/:email', verifyToken, async (req, res) => {
